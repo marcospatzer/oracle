@@ -1,0 +1,140 @@
+--Check if MRP process is running on standby
+set lines 200
+select process, status, sequence# from v$managed_standby;
+
+--Start SQL appy Physical database
+Alter database recover managed standby database disconnect;
+-----------------------------------------------------------Start realtime SQL appy for logical standby;
+------------------------------------------------------------Alter database start logical standby apply immediate;
+--Stop SQL apply
+Alter database recover managed standby database cancel;
+
+--Check databaes role, protection level
+set lines 200
+SELECT DATABASE_ROLE, DB_UNIQUE_NAME INSTANCE, OPEN_MODE, PROTECTION_MODE, PROTECTION_LEVEL, SWITCHOVER_STATUS FROM V$DATABASE;
+
+--Check last log applied
+SELECT THREAD#, MAX(SEQUENCE#) AS "LAST_APPLIED_LOG" FROM V$LOG_HISTORY GROUP BY THREAD#;
+
+--Check the location that Primary is shipping to
+set lines 200
+col dest_name for a44
+col status for a22
+col destination for a44
+select dest_name, status, destination from v$archive_dest;
+
+
+--Check Primary last log
+SELECT MAX(SEQUENCE#),THREAD# FROM V$ARCHIVED_LOG WHERE RESETLOGS_CHANGE# = (SELECT MAX(RESETLOGS_CHANGE#) FROM V$ARCHIVED_LOG) GROUP BY THREAD#;
+
+--Check Primary last log
+col destination for a16
+SELECT DESTINATION, STATUS, ARCHIVED_THREAD#, ARCHIVED_SEQ# FROM V$ARCHIVE_DEST_STATUS WHERE STATUS <> 'DEFERRED' AND STATUS <> 'INACTIVE';
+
+
+--Check for Gap on Standby
+SELECT *  FROM V$ARCHIVE_GAP;
+
+--On Primary compare this queries results with the output from below query
+Select max(sequence#) from v$archived_log;
+
+--On Standby compare this queries results with the output from above query
+Select max(sequence#) from v$archived_log where applied ='YES';
+
+X$LOGBUF_READHIST
+
+--Production check if insync with standby
+SELECT distinct SEQUENCE# "Last Sequence Generated", THREAD# "Thread" FROM V$ARCHIVED_LOG
+WHERE (THREAD#,FIRST_TIME ) IN (SELECT THREAD#,MAX(FIRST_TIME) FROM V$ARCHIVED_LOG GROUP BY THREAD#) ORDER BY 1;
+
+--Standby check if insycn with production
+SELECT ARCH.THREAD# "Thread", ARCH.SEQUENCE# "Last Sequence Received", APPL.SEQUENCE# "Last Sequence Applied", 
+(ARCH.SEQUENCE# - APPL.SEQUENCE#) "Difference" FROM (SELECT THREAD# ,SEQUENCE# FROM V$ARCHIVED_LOG WHERE 
+(THREAD#,FIRST_TIME ) IN (SELECT THREAD#,MAX(FIRST_TIME) FROM V$ARCHIVED_LOG GROUP BY THREAD#)) ARCH, 
+(SELECT THREAD# ,SEQUENCE# FROM V$LOG_HISTORY WHERE (THREAD#,FIRST_TIME ) IN (SELECT THREAD#,MAX(FIRST_TIME) 
+FROM V$LOG_HISTORY GROUP BY THREAD#)) APPL WHERE ARCH.THREAD# = APPL.THREAD#;
+
+
+--Fast start failover status
+Select fs_failover_status,fs_failover_observer_present from v$database; 
+
+
+--On standby
+SELECT PROCESS, CLIENT_PROCESS,THREAD#, SEQUENCE#,STATUS FROM V$MANAGED_STANDBY;
+
+-- On primary This indirectly shows how much
+-- redo data (at the current point in time) could be lost if the primary database crashed
+SELECT * FROM V$DATAGUARD_STATS;
+
+--On standby This view provides the current redo apply rate in KB/second:
+select to_char(snapshot_time,'dd-mon-rr hh24:mi:ss') snapshot_time, thread#, sequence#, applied_scn,
+apply_rate from V$standby_apply_snapshot;
+
+
+--On Standby to find gap
+SELECT * FROM V$ARCHIVE_GAP;
+
+--On Standby or Production 
+select name,DATABASE_ROLE,DATAGUARD_BROKER from v$database;
+NAME      DATABASE_ROLE    DATAGUAR
+--------- ---------------- --------
+TEST01    PRIMARY          ENABLED
+--alter system set dg_broker_start=TRUE;
+--alter system set dg_broker_start=FALSE;
+
+--Database Warning(s):
+    ORA-16857: standby disconnected from redo source for longer than specified threshold
+--check the logs for both standby and primary 
+
+SQL> select GROUP#,THREAD#,BYTES/1024/1024 from v$log;
+    GROUP#    THREAD# BYTES/1024/1024
+---------- ---------- ---------------
+         1          1            1024
+         2          1            1024
+         3          2            1024
+         4          2            1024
+select GROUP#,THREAD# ,BYTES/1024/1024 from v$standby_log;
+    GROUP#    THREAD# BYTES/1024/1024
+---------- ---------- ---------------
+        31          1            1024
+        32          1            1024
+        33          1            1024
+        34          1            1024
+--alter database recover managed standby database cancel;
+--drop 
+
+
+--On standby This view can be used to monitor efficient recovery operations as
+--well as to estimate the time required to complete the current operation in progress
+select to_char(start_time, 'DD-MON-RR HH24:MI:SS') start_time, item, round(sofar/1024,2) "MB/Sec"
+from v$recovery_progress where (item='Active Apply Rate' or item='Average Apply Rate');
+
+--On Standby to determin status
+set lines 260 pages 150
+col FACILITY for a22
+col MESSAGE for a110
+select * from v$dataguard_status;
+
+--on Logical Standby to determin lag
+select name, value, unit from v$dataguard_status;
+
+edit database test01dg set state='transport-on';
+
+select log_mode,flashback_on from v$database; 
+
+alter system set standby_file_management='MANUAL';
+alter system set standby_file_management='AUTO';
+
+-- ON primary
+ALTER SYSTEM SET log_archive_dest_state_2 = DEFER;
+
+set lines 200
+select * from v$flash_recovery_area_usage;
+
+
+
+
+
+
+
+
