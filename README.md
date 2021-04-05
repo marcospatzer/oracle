@@ -15,3 +15,13 @@ tablespace.sql - queries to manage tablespace sizes
 tfsclock.sql - complex query from Oracle that gives a lot of details about locks
 
 undo_space.sql - queries to dig into undo usage
+
+
+--------------------------------------------------------------------------------------------------
+
+
+https://github.com/oraclebase/dba
+
+
+
+
